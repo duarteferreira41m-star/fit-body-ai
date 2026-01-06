@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { useNavigate } from "react-router-dom";
+import { api } from "@/lib/api";
+import { getToken, setToken } from "@/lib/auth";
 import {
   Dumbbell,
   ChevronRight,
@@ -37,6 +39,7 @@ const Onboarding = () => {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    password: "",
     age: "",
     sex: "masculino",
     weight: "",
@@ -53,12 +56,58 @@ const Onboarding = () => {
     usesSteroids: false,
     steroids: "",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < steps.length) {
       setCurrentStep(currentStep + 1);
-    } else {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const hasToken = Boolean(getToken());
+      if (!hasToken) {
+        const result = await api.register({
+          email: formData.email,
+          password: formData.password,
+        });
+        setToken(result.token);
+      }
+
+      await api.updateProfile({
+        name: formData.name || undefined,
+        age: formData.age ? Number(formData.age) : undefined,
+        gender: formData.sex || undefined,
+        goal: formData.goal || undefined,
+        wakeUpTime: formData.wakeUpTime || undefined,
+        firstMealTime: formData.firstMealTime || undefined,
+        trainingTime: formData.trainingTime || undefined,
+        trainingDays: formData.trainingDays ? Number(formData.trainingDays) : undefined,
+        trainingDurationMin: formData.trainingDuration
+          ? Number(formData.trainingDuration)
+          : undefined,
+        preferredFoods: formData.preferredFoods || undefined,
+        allergies: formData.allergies || undefined,
+        usesSteroids: formData.usesSteroids,
+        steroids: formData.steroids || undefined,
+        heightCm: formData.height ? Number(formData.height) : undefined,
+      });
+
+      if (formData.weight || formData.bodyFat) {
+        await api.createMeasurement({
+          weightKg: formData.weight ? Number(formData.weight) : undefined,
+          bodyFatPct: formData.bodyFat ? Number(formData.bodyFat) : undefined,
+        });
+      }
+
       navigate("/");
+    } catch (error) {
+      setErrorMessage("Não foi possível concluir o cadastro. Tente novamente.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -174,6 +223,15 @@ const Onboarding = () => {
                       placeholder="seu@email.com"
                       value={formData.email}
                       onChange={(e) => updateFormData("email", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Senha</Label>
+                    <Input
+                      type="password"
+                      placeholder="Crie uma senha"
+                      value={formData.password}
+                      onChange={(e) => updateFormData("password", e.target.value)}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -502,11 +560,17 @@ const Onboarding = () => {
               <ChevronLeft className="h-5 w-5" />
             </Button>
           )}
-          <Button variant="fitness" size="lg" className="flex-1" onClick={handleNext}>
+          <Button
+            variant="fitness"
+            size="lg"
+            className="flex-1"
+            onClick={handleNext}
+            disabled={isSubmitting}
+          >
             {currentStep === steps.length ? (
               <>
                 <Sparkles className="h-5 w-5" />
-                Criar Meu Plano
+                {isSubmitting ? "Salvando..." : "Criar Meu Plano"}
               </>
             ) : (
               <>
@@ -516,6 +580,7 @@ const Onboarding = () => {
             )}
           </Button>
         </div>
+        {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
       </footer>
     </div>
   );

@@ -1,25 +1,24 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { PageHeader } from "@/components/PageHeader";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { BottomNav } from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import {
   Play,
-  Pause,
   SkipForward,
   Clock,
-  Flame,
   Check,
-  X,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
 
-const workoutPlan = {
-  name: "Peito e Tríceps",
-  duration: "60 min",
+const fallbackWorkoutPlan = {
+  name: "Peito e Triceps",
+  durationMin: 60,
   calories: 450,
   exercises: [
     {
@@ -49,7 +48,7 @@ const workoutPlan = {
       ],
     },
     {
-      name: "Crucifixo Máquina",
+      name: "Crucifixo Maquina",
       sets: 3,
       reps: "12-15",
       muscleGroup: "Peito",
@@ -61,10 +60,10 @@ const workoutPlan = {
       ],
     },
     {
-      name: "Tríceps Pulley Corda",
+      name: "Triceps Pulley Corda",
       sets: 4,
       reps: "12-15",
-      muscleGroup: "Tríceps",
+      muscleGroup: "Triceps",
       rest: "45s",
       instructions: [
         "Segure a corda com as palmas voltadas uma para outra",
@@ -74,10 +73,10 @@ const workoutPlan = {
       ],
     },
     {
-      name: "Tríceps Francês",
+      name: "Triceps Frances",
       sets: 3,
       reps: "10-12",
-      muscleGroup: "Tríceps",
+      muscleGroup: "Triceps",
       rest: "60s",
       instructions: [
         "Deite no banco segurando a barra EZ",
@@ -88,14 +87,77 @@ const workoutPlan = {
   ],
 };
 
+const getYoutubeId = (url?: string | null) => {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.includes("youtube.com")) {
+      return parsed.searchParams.get("v");
+    }
+    if (parsed.hostname.includes("youtu.be")) {
+      return parsed.pathname.replace("/", "");
+    }
+  } catch (error) {
+    return null;
+  }
+  return null;
+};
+
 const Workout = () => {
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [completedExercises, setCompletedExercises] = useState<number[]>([]);
   const [isResting, setIsResting] = useState(false);
   const [showInstructions, setShowInstructions] = useState(true);
   const [restTime, setRestTime] = useState(0);
+  const [workoutSaved, setWorkoutSaved] = useState(false);
+
+  const { data: workoutPlanData, isLoading: isWorkoutPlanLoading } = useQuery({
+    queryKey: ["workoutPlan"],
+    queryFn: () => api.getWorkoutPlan(),
+  });
+  const { data: exercisesData } = useQuery({
+    queryKey: ["exercises"],
+    queryFn: () => api.getExercises(),
+  });
+
+  const regenerateWorkoutPlan = useMutation({
+    mutationFn: () => api.regenerateWorkoutPlan(),
+    onSuccess: () => {
+      setCurrentExerciseIndex(0);
+      setCompletedExercises([]);
+      setWorkoutSaved(false);
+    },
+  });
+
+  const workoutPlan = workoutPlanData?.plan ?? fallbackWorkoutPlan;
+
+  const saveWorkoutMutation = useMutation({
+    mutationFn: () =>
+      api.createWorkout({
+        name: workoutPlan.name,
+        durationMin: workoutPlan.durationMin,
+        calories: workoutPlan.calories,
+      }),
+    onSuccess: () => {
+      setWorkoutSaved(true);
+    },
+  });
+
+  const youtubeMap = useMemo(() => {
+    const map = new Map<string, string>();
+    exercisesData?.exercises?.forEach((exercise) => {
+      if (exercise.youtubeUrl) {
+        const id = getYoutubeId(exercise.youtubeUrl);
+        if (id) {
+          map.set(exercise.name, id);
+        }
+      }
+    });
+    return map;
+  }, [exercisesData?.exercises]);
 
   const currentExercise = workoutPlan.exercises[currentExerciseIndex];
+  const youtubeId = youtubeMap.get(currentExercise.name);
 
   const handleCompleteSet = () => {
     setIsResting(true);
@@ -131,10 +193,25 @@ const Workout = () => {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      <PageHeader title="TREINO" subtitle={workoutPlan.name} />
+      <PageHeader
+        title="TREINO"
+        subtitle={workoutPlan.name}
+        rightElement={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => regenerateWorkoutPlan.mutate()}
+            disabled={regenerateWorkoutPlan.isPending}
+          >
+            {regenerateWorkoutPlan.isPending ? "Atualizando..." : "Atualizar plano"}
+          </Button>
+        }
+      />
 
       <main className="px-4 space-y-6">
-        {/* Progress bar */}
+        {isWorkoutPlanLoading && (
+          <p className="text-sm text-muted-foreground">Gerando seu treino com IA...</p>
+        )}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Progresso</span>
@@ -152,7 +229,6 @@ const Workout = () => {
           </div>
         </div>
 
-        {/* Rest timer overlay */}
         <AnimatePresence>
           {isResting && (
             <motion.div
@@ -188,14 +264,23 @@ const Workout = () => {
           )}
         </AnimatePresence>
 
-        {/* Current exercise */}
         <Card className="overflow-hidden">
           <div className="aspect-video bg-gradient-to-br from-primary/20 to-secondary flex items-center justify-center relative">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="h-20 w-20 rounded-full bg-primary/20 backdrop-blur-sm flex items-center justify-center cursor-pointer hover:scale-110 transition-transform">
-                <Play className="h-10 w-10 text-primary ml-1" />
+            {youtubeId ? (
+              <iframe
+                className="absolute inset-0 h-full w-full"
+                src={`https://www.youtube.com/embed/${youtubeId}`}
+                title={currentExercise.name}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-20 w-20 rounded-full bg-primary/20 backdrop-blur-sm flex items-center justify-center">
+                  <Play className="h-10 w-10 text-primary ml-1" />
+                </div>
               </div>
-            </div>
+            )}
             <p className="absolute bottom-4 left-4 text-xs text-muted-foreground bg-background/50 backdrop-blur-sm px-2 py-1 rounded">
               Toque para ver demonstração
             </p>
@@ -214,7 +299,6 @@ const Workout = () => {
               </div>
             </div>
 
-            {/* Instructions toggle */}
             <button
               onClick={() => setShowInstructions(!showInstructions)}
               className="w-full flex items-center justify-between py-2 text-sm text-muted-foreground"
@@ -249,7 +333,6 @@ const Workout = () => {
               )}
             </AnimatePresence>
 
-            {/* Action buttons */}
             <div className="flex gap-3 mt-4">
               <Button variant="secondary" size="lg" className="flex-1" onClick={handleSkipExercise}>
                 <SkipForward className="h-5 w-5" />
@@ -271,7 +354,6 @@ const Workout = () => {
           </CardContent>
         </Card>
 
-        {/* Exercise list */}
         <section>
           <h3 className="font-display text-lg text-foreground mb-3">TODOS OS EXERCÍCIOS</h3>
           <div className="space-y-3">
@@ -289,6 +371,18 @@ const Workout = () => {
             ))}
           </div>
         </section>
+
+        {completedExercises.length === workoutPlan.exercises.length && (
+          <Button
+            variant="fitness"
+            size="lg"
+            className="w-full"
+            onClick={() => saveWorkoutMutation.mutate()}
+            disabled={saveWorkoutMutation.isPending || workoutSaved}
+          >
+            {workoutSaved ? "Treino salvo" : saveWorkoutMutation.isPending ? "Salvando..." : "Finalizar treino"}
+          </Button>
+        )}
       </main>
 
       <BottomNav />

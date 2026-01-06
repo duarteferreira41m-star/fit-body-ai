@@ -5,6 +5,8 @@ import { ExerciseCard } from "@/components/ExerciseCard";
 import { ProgressRing } from "@/components/ProgressRing";
 import { BottomNav } from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import {
   Scale,
   Target,
@@ -45,16 +47,74 @@ const mockExercises = [
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { data: profileData } = useQuery({
+    queryKey: ["profile"],
+    queryFn: () => api.getProfile(),
+  });
+  const { data: measurementsData } = useQuery({
+    queryKey: ["measurements"],
+    queryFn: () => api.getMeasurements(),
+  });
+  const { data: dietData } = useQuery({
+    queryKey: ["dietLogs"],
+    queryFn: () => api.getDietLogs(),
+  });
+  const { data: workoutsData } = useQuery({
+    queryKey: ["workouts"],
+    queryFn: () => api.getWorkouts(),
+  });
+  const { data: analysesData } = useQuery({
+    queryKey: ["analyses"],
+    queryFn: () => api.getAnalyses(),
+  });
+  const { data: exercisesData } = useQuery({
+    queryKey: ["exercises"],
+    queryFn: () => api.getExercises(),
+  });
+
+  const profile = profileData?.profile;
+  const latestMeasurement = measurementsData?.measurements?.[0];
+  const latestDiet = dietData?.dietLogs?.[0];
+  const latestAnalysis = analysesData?.analyses?.[0];
+  const exercises = exercisesData?.exercises?.length
+    ? exercisesData.exercises.slice(0, 3).map((exercise) => ({
+        name: exercise.name,
+        sets: 3,
+        reps: "10-12",
+        muscleGroup: exercise.muscleGroup || "Geral",
+        duration: "12 min",
+        calories: 80,
+      }))
+    : mockExercises;
+
+  const today = new Date();
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() - 6);
+  const workoutsThisWeek = workoutsData?.workouts?.filter((workout) => {
+    const date = new Date(workout.date);
+    return date >= startOfWeek;
+  }).length;
+  const weeklyTarget = profile?.trainingDays || 5;
+  const caloriesTarget = 2500;
+  const caloriesConsumed = latestDiet?.calories || 0;
+  const progressPercent = Math.min((caloriesConsumed / caloriesTarget) * 100, 100);
+  const initials = profile?.name
+    ? profile.name
+        .split(" ")
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+    : "AI";
 
   return (
     <div className="min-h-screen bg-background pb-24">
       {/* Header with greeting */}
       <PageHeader
         title="FALA, GUERREIRO!"
-        subtitle="Hoje é dia de peito e tríceps"
+        subtitle="Hora de evoluir mais um dia"
         rightElement={
           <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-primary-foreground font-bold text-lg">
-            JD
+            {initials}
           </div>
         }
       />
@@ -76,13 +136,13 @@ const Dashboard = () => {
                 <div className="flex items-center gap-2">
                   <Flame className="h-4 w-4 text-warning" />
                   <span className="text-sm text-muted-foreground">
-                    1.850 / 2.500 kcal
+                    {caloriesConsumed} / {caloriesTarget} kcal
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Dumbbell className="h-4 w-4 text-primary" />
                   <span className="text-sm text-muted-foreground">
-                    2 de 5 exercícios
+                    {workoutsThisWeek || 0} de {weeklyTarget} treinos
                   </span>
                 </div>
               </div>
@@ -96,7 +156,7 @@ const Dashboard = () => {
                 Continuar Treino
               </Button>
             </div>
-            <ProgressRing progress={65} size={100} label="Completo" />
+            <ProgressRing progress={progressPercent} size={100} label="Completo" />
           </div>
         </motion.section>
 
@@ -114,23 +174,23 @@ const Dashboard = () => {
             <StatCard
               icon={Scale}
               label="Peso Atual"
-              value={78.5}
+              value={latestMeasurement?.weightKg || 0}
               unit="kg"
               trend="down"
               trendValue="1.2kg"
             />
             <StatCard
               icon={Target}
-              label="Meta"
-              value={75}
-              unit="kg"
+              label="Meta Semanal"
+              value={weeklyTarget}
+              unit="treinos"
               trend="neutral"
-              trendValue="3.5kg"
+              trendValue={profile?.goal || "Defina sua meta"}
             />
             <StatCard
               icon={TrendingUp}
               label="% Gordura"
-              value={18.2}
+              value={latestAnalysis?.bodyFatEstimate || latestMeasurement?.bodyFatPct || 0}
               unit="%"
               trend="down"
               trendValue="0.8%"
@@ -138,7 +198,7 @@ const Dashboard = () => {
             <StatCard
               icon={Flame}
               label="Kcal Hoje"
-              value={1850}
+              value={caloriesConsumed}
               unit=""
               trend="up"
               trendValue="+350"
@@ -160,7 +220,7 @@ const Dashboard = () => {
             </button>
           </div>
           <div className="space-y-3">
-            {mockExercises.map((exercise, index) => (
+            {exercises.map((exercise, index) => (
               <ExerciseCard
                 key={index}
                 {...exercise}

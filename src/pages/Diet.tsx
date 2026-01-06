@@ -1,17 +1,21 @@
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { MealCard } from "@/components/MealCard";
 import { BottomNav } from "@/components/BottomNav";
 import { ProgressRing } from "@/components/ProgressRing";
 import { motion } from "framer-motion";
 import { Flame, Droplets, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
-const dietPlan = {
+const fallbackDietPlan = {
   totalCalories: 2500,
-  consumedCalories: 1850,
-  protein: { target: 180, consumed: 135 },
-  carbs: { target: 280, consumed: 195 },
-  fat: { target: 70, consumed: 52 },
-  water: { target: 3, consumed: 2.1 },
+  protein: { target: 180 },
+  carbs: { target: 280 },
+  fat: { target: 70 },
+  water: { target: 3 },
   meals: [
     {
       name: "Café da Manhã",
@@ -40,7 +44,7 @@ const dietPlan = {
       protein: 45,
       carbs: 70,
       fat: 18,
-      foods: ["200g frango grelhado", "150g arroz integral", "Salada verde", "Legumes refogados"],
+      foods: ["200g frango grelhado", "150g arroz integral", "Salada verde", "Legumes"],
       isCompleted: true,
     },
     {
@@ -70,25 +74,137 @@ const dietPlan = {
       protein: 40,
       carbs: 45,
       fat: 20,
-      foods: ["200g carne vermelha", "Purê de batata", "Brócolis", "Azeite"],
+      foods: ["200g carne", "Purê de batata", "Brócolis", "Azeite"],
       isCompleted: false,
     },
   ],
 };
 
 const Diet = () => {
-  const caloriesProgress = (dietPlan.consumedCalories / dietPlan.totalCalories) * 100;
-  const proteinProgress = (dietPlan.protein.consumed / dietPlan.protein.target) * 100;
-  const carbsProgress = (dietPlan.carbs.consumed / dietPlan.carbs.target) * 100;
-  const fatProgress = (dietPlan.fat.consumed / dietPlan.fat.target) * 100;
-  const waterProgress = (dietPlan.water.consumed / dietPlan.water.target) * 100;
+  const queryClient = useQueryClient();
+  const { data: dietPlanData, isLoading: isDietPlanLoading } = useQuery({
+    queryKey: ["dietPlan"],
+    queryFn: () => api.getDietPlan(),
+  });
+  const { data: dietData } = useQuery({
+    queryKey: ["dietLogs"],
+    queryFn: () => api.getDietLogs(),
+  });
+  const latestDiet = dietData?.dietLogs?.[0];
+  const [formState, setFormState] = useState({
+    calories: "",
+    proteinG: "",
+    carbsG: "",
+    fatG: "",
+    waterLiters: "",
+  });
+
+  useEffect(() => {
+    if (!latestDiet) return;
+    setFormState({
+      calories: latestDiet.calories ? String(latestDiet.calories) : "",
+      proteinG: latestDiet.proteinG ? String(latestDiet.proteinG) : "",
+      carbsG: latestDiet.carbsG ? String(latestDiet.carbsG) : "",
+      fatG: latestDiet.fatG ? String(latestDiet.fatG) : "",
+      waterLiters: latestDiet.waterLiters ? String(latestDiet.waterLiters) : "",
+    });
+  }, [latestDiet]);
+
+  const saveDietMutation = useMutation({
+    mutationFn: () =>
+      api.createDietLog({
+        calories: formState.calories ? Number(formState.calories) : undefined,
+        proteinG: formState.proteinG ? Number(formState.proteinG) : undefined,
+        carbsG: formState.carbsG ? Number(formState.carbsG) : undefined,
+        fatG: formState.fatG ? Number(formState.fatG) : undefined,
+        waterLiters: formState.waterLiters ? Number(formState.waterLiters) : undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dietLogs"] });
+    },
+  });
+
+  const regenerateDietPlan = useMutation({
+    mutationFn: () => api.regenerateDietPlan(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dietPlan"] });
+    },
+  });
+
+  const dietPlan = dietPlanData?.plan ?? fallbackDietPlan;
+
+  const consumedCalories = latestDiet?.calories || 0;
+  const consumedProtein = latestDiet?.proteinG || 0;
+  const consumedCarbs = latestDiet?.carbsG || 0;
+  const consumedFat = latestDiet?.fatG || 0;
+  const consumedWater = latestDiet?.waterLiters || 0;
+
+  const caloriesProgress = (consumedCalories / dietPlan.totalCalories) * 100;
+  const proteinProgress = (consumedProtein / dietPlan.protein.target) * 100;
+  const carbsProgress = (consumedCarbs / dietPlan.carbs.target) * 100;
+  const fatProgress = (consumedFat / dietPlan.fat.target) * 100;
+  const waterProgress = (consumedWater / dietPlan.water.target) * 100;
 
   return (
     <div className="min-h-screen bg-background pb-24">
       <PageHeader title="DIETA" subtitle="Seu plano alimentar personalizado" />
 
       <main className="px-4 space-y-6">
-        {/* Calories summary */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-5 rounded-3xl bg-gradient-to-br from-card to-secondary border border-border"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-xl text-foreground tracking-wide">
+              REGISTRAR CONSUMO
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => regenerateDietPlan.mutate()}
+              disabled={regenerateDietPlan.isPending}
+            >
+              {regenerateDietPlan.isPending ? "Atualizando..." : "Atualizar plano"}
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              placeholder="Kcal"
+              value={formState.calories}
+              onChange={(e) => setFormState((prev) => ({ ...prev, calories: e.target.value }))}
+            />
+            <Input
+              placeholder="Proteína (g)"
+              value={formState.proteinG}
+              onChange={(e) => setFormState((prev) => ({ ...prev, proteinG: e.target.value }))}
+            />
+            <Input
+              placeholder="Carbo (g)"
+              value={formState.carbsG}
+              onChange={(e) => setFormState((prev) => ({ ...prev, carbsG: e.target.value }))}
+            />
+            <Input
+              placeholder="Gordura (g)"
+              value={formState.fatG}
+              onChange={(e) => setFormState((prev) => ({ ...prev, fatG: e.target.value }))}
+            />
+            <Input
+              placeholder="Água (L)"
+              value={formState.waterLiters}
+              onChange={(e) => setFormState((prev) => ({ ...prev, waterLiters: e.target.value }))}
+            />
+          </div>
+          <Button
+            variant="fitness"
+            className="w-full mt-4"
+            onClick={() => saveDietMutation.mutate()}
+            disabled={saveDietMutation.isPending}
+          >
+            {saveDietMutation.isPending ? "Salvando..." : "Salvar consumo do dia"}
+          </Button>
+        </motion.section>
+
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -100,21 +216,20 @@ const Diet = () => {
                 CALORIAS HOJE
               </h2>
               <p className="text-3xl font-bold text-foreground">
-                {dietPlan.consumedCalories}
+                {consumedCalories}
                 <span className="text-lg text-muted-foreground font-normal">
                   {" "}
                   / {dietPlan.totalCalories} kcal
                 </span>
               </p>
               <p className="text-sm text-muted-foreground mt-1">
-                Faltam {dietPlan.totalCalories - dietPlan.consumedCalories} kcal
+                Faltam {dietPlan.totalCalories - consumedCalories} kcal
               </p>
             </div>
             <ProgressRing progress={caloriesProgress} size={90} />
           </div>
         </motion.section>
 
-        {/* Macros */}
         <section className="grid grid-cols-3 gap-3">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -127,7 +242,7 @@ const Diet = () => {
             </div>
             <p className="text-xs text-muted-foreground">Proteína</p>
             <p className="font-bold text-foreground">
-              {dietPlan.protein.consumed}
+              {consumedProtein}
               <span className="text-xs text-muted-foreground">/{dietPlan.protein.target}g</span>
             </p>
             <div className="h-1.5 bg-secondary rounded-full mt-2 overflow-hidden">
@@ -149,7 +264,7 @@ const Diet = () => {
             </div>
             <p className="text-xs text-muted-foreground">Carbos</p>
             <p className="font-bold text-foreground">
-              {dietPlan.carbs.consumed}
+              {consumedCarbs}
               <span className="text-xs text-muted-foreground">/{dietPlan.carbs.target}g</span>
             </p>
             <div className="h-1.5 bg-secondary rounded-full mt-2 overflow-hidden">
@@ -171,7 +286,7 @@ const Diet = () => {
             </div>
             <p className="text-xs text-muted-foreground">Gordura</p>
             <p className="font-bold text-foreground">
-              {dietPlan.fat.consumed}
+              {consumedFat}
               <span className="text-xs text-muted-foreground">/{dietPlan.fat.target}g</span>
             </p>
             <div className="h-1.5 bg-secondary rounded-full mt-2 overflow-hidden">
@@ -183,7 +298,6 @@ const Diet = () => {
           </motion.div>
         </section>
 
-        {/* Water intake */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -198,7 +312,7 @@ const Diet = () => {
               <div>
                 <p className="font-semibold text-foreground">Hidratação</p>
                 <p className="text-xs text-muted-foreground">
-                  {dietPlan.water.consumed}L de {dietPlan.water.target}L
+                  {consumedWater}L de {dietPlan.water.target}L
                 </p>
               </div>
             </div>
@@ -212,11 +326,13 @@ const Diet = () => {
           </div>
         </motion.section>
 
-        {/* Meals */}
         <section>
           <h2 className="font-display text-xl text-foreground tracking-wide mb-4">
             REFEIÇÕES DO DIA
           </h2>
+          {isDietPlanLoading && (
+            <p className="text-sm text-muted-foreground">Gerando seu plano com IA...</p>
+          )}
           <div className="space-y-4">
             {dietPlan.meals.map((meal, index) => (
               <MealCard key={index} {...meal} />
