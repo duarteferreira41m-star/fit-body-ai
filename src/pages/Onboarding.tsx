@@ -56,17 +56,40 @@ const Onboarding = () => {
     usesSteroids: false,
     steroids: "",
   });
+  const [photoFiles, setPhotoFiles] = useState<{
+    frontRelaxed?: File;
+    sideRelaxed?: File;
+    backRelaxed?: File;
+    frontFlexed?: File;
+    sideFlexed?: File;
+    backFlexed?: File;
+  }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleNext = async () => {
+    setErrorMessage(null);
     if (currentStep < steps.length) {
+      if (currentStep === 2) {
+        const missingPhotos =
+          !photoFiles.frontRelaxed ||
+          !photoFiles.sideRelaxed ||
+          !photoFiles.backRelaxed ||
+          !photoFiles.frontFlexed ||
+          !photoFiles.sideFlexed ||
+          !photoFiles.backFlexed;
+        if (missingPhotos) {
+          setErrorMessage(
+            "Envie todas as fotos (frente, lado e costas) em descanso e contraida."
+          );
+          return;
+        }
+      }
       setCurrentStep(currentStep + 1);
       return;
     }
 
     setIsSubmitting(true);
-    setErrorMessage(null);
     try {
       const hasToken = Boolean(getToken());
       if (!hasToken) {
@@ -76,6 +99,15 @@ const Onboarding = () => {
         });
         setToken(result.token);
       }
+
+      await Promise.all([
+        api.uploadPhoto(photoFiles.frontRelaxed as File, "Frente - Relaxado"),
+        api.uploadPhoto(photoFiles.sideRelaxed as File, "Lado - Relaxado"),
+        api.uploadPhoto(photoFiles.backRelaxed as File, "Costas - Relaxado"),
+        api.uploadPhoto(photoFiles.frontFlexed as File, "Frente - Contraida"),
+        api.uploadPhoto(photoFiles.sideFlexed as File, "Lado - Contraida"),
+        api.uploadPhoto(photoFiles.backFlexed as File, "Costas - Contraida"),
+      ]);
 
       await api.updateProfile({
         name: formData.name || undefined,
@@ -105,7 +137,20 @@ const Onboarding = () => {
 
       navigate("/");
     } catch (error) {
-      setErrorMessage("Não foi possível concluir o cadastro. Tente novamente.");
+      let message = "Não foi possível concluir o cadastro. Tente novamente.";
+      if (error instanceof Error && error.message) {
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed && typeof parsed.error === "string") {
+            message = parsed.error;
+          } else {
+            message = error.message;
+          }
+        } catch {
+          message = error.message;
+        }
+      }
+      setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -113,12 +158,17 @@ const Onboarding = () => {
 
   const handleBack = () => {
     if (currentStep > 1) {
+      setErrorMessage(null);
       setCurrentStep(currentStep - 1);
     }
   };
 
   const updateFormData = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updatePhotoFile = (field: keyof typeof photoFiles, file?: File) => {
+    setPhotoFiles((prev) => ({ ...prev, [field]: file }));
   };
 
   const progress = (currentStep / steps.length) * 100;
@@ -317,6 +367,112 @@ const Onboarding = () => {
                     <p className="text-xs text-muted-foreground mt-1">
                       Se não souber, podemos estimar com as fotos
                     </p>
+                  </div>
+                  <div className="pt-4">
+                    <Label>Fotos em descanso (obrigatorio)</Label>
+                    <div className="grid grid-cols-3 gap-3 mt-2">
+                      <label className="w-[10cm] h-[12cm] rounded-xl bg-secondary border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                        <span className="text-xs text-muted-foreground">Frente</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) =>
+                            updatePhotoFile("frontRelaxed", e.target.files?.[0])
+                          }
+                        />
+                        {photoFiles.frontRelaxed && (
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            {photoFiles.frontRelaxed.name}
+                          </span>
+                        )}
+                      </label>
+                      <label className="w-[10cm] h-[12cm] rounded-xl bg-secondary border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                        <span className="text-xs text-muted-foreground">Lado</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) =>
+                            updatePhotoFile("sideRelaxed", e.target.files?.[0])
+                          }
+                        />
+                        {photoFiles.sideRelaxed && (
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            {photoFiles.sideRelaxed.name}
+                          </span>
+                        )}
+                      </label>
+                      <label className="w-[10cm] h-[12cm] rounded-xl bg-secondary border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                        <span className="text-xs text-muted-foreground">Costas</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) =>
+                            updatePhotoFile("backRelaxed", e.target.files?.[0])
+                          }
+                        />
+                        {photoFiles.backRelaxed && (
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            {photoFiles.backRelaxed.name}
+                          </span>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+                  <div className="pt-2">
+                    <Label>Fotos com musculatura contraida (obrigatorio)</Label>
+                    <div className="grid grid-cols-3 gap-3 mt-2">
+                      <label className="w-[10cm] h-[12cm] rounded-xl bg-secondary border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                        <span className="text-xs text-muted-foreground">Frente</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) =>
+                            updatePhotoFile("frontFlexed", e.target.files?.[0])
+                          }
+                        />
+                        {photoFiles.frontFlexed && (
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            {photoFiles.frontFlexed.name}
+                          </span>
+                        )}
+                      </label>
+                      <label className="w-[10cm] h-[12cm] rounded-xl bg-secondary border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                        <span className="text-xs text-muted-foreground">Lado</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) =>
+                            updatePhotoFile("sideFlexed", e.target.files?.[0])
+                          }
+                        />
+                        {photoFiles.sideFlexed && (
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            {photoFiles.sideFlexed.name}
+                          </span>
+                        )}
+                      </label>
+                      <label className="w-[10cm] h-[12cm] rounded-xl bg-secondary border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                        <span className="text-xs text-muted-foreground">Costas</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) =>
+                            updatePhotoFile("backFlexed", e.target.files?.[0])
+                          }
+                        />
+                        {photoFiles.backFlexed && (
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            {photoFiles.backFlexed.name}
+                          </span>
+                        )}
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -587,3 +743,4 @@ const Onboarding = () => {
 };
 
 export default Onboarding;
+
