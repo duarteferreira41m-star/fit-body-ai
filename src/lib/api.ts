@@ -39,7 +39,7 @@ export const api = {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },
     }),
-  register: (payload: { email: string; password: string }) =>
+  register: (payload: { email: string; password: string; name?: string; phone?: string }) =>
     apiFetch<{ token: string }>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -70,6 +70,37 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       auth: true,
     }),
+  adjustDietMeal: (payload: {
+    mealName: string;
+    mealTime: string;
+    availableFoods: string;
+    planTargets: {
+      totalCalories: number;
+      protein: { target: number };
+      carbs: { target: number };
+      fat: { target: number };
+    };
+    optionMacros: { calories: number; protein: number; carbs: number; fat: number };
+    photo?: File | null;
+  }) => {
+    const form = new FormData();
+    form.append("mealName", payload.mealName);
+    form.append("mealTime", payload.mealTime);
+    form.append("availableFoods", payload.availableFoods);
+    form.append("planTargets", JSON.stringify(payload.planTargets));
+    form.append("optionMacros", JSON.stringify(payload.optionMacros));
+    if (payload.photo) {
+      form.append("photo", payload.photo);
+    }
+    return apiFetch<{
+      option: DietPlan["meals"][number]["options"][number];
+      reasoning: string;
+    }>("/api/diet/adjust-meal", {
+      method: "POST",
+      body: form,
+      auth: true,
+    });
+  },
   getMeasurements: () => apiFetch<{ measurements: Measurement[] }>("/api/measurements", { auth: true }),
   createMeasurement: (payload: MeasurementPayload) =>
     apiFetch<{ measurement: Measurement }>("/api/measurements", {
@@ -109,6 +140,35 @@ export const api = {
   regenerateWorkoutPlan: () =>
     apiFetch<{ plan: WorkoutPlan; createdAt: string }>("/api/plans/workout/regenerate", {
       method: "POST",
+      auth: true,
+    }),
+  getRestSuggestion: (payload: {
+    exercise: { name: string; muscleGroup: string; sets: number; reps: string; rest?: string };
+  }) =>
+    apiFetch<{ suggestedRest: string; reasoning: string }>("/api/workouts/rest-suggestion", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      auth: true,
+    }),
+  getExerciseSubstitution: (payload: {
+    exercise: { name: string; muscleGroup: string; sets: number; reps: string; rest?: string };
+    reason: string;
+  }) =>
+    apiFetch<{
+      substitute: WorkoutPlan["workouts"][number]["exercises"][number];
+      reasoning: string;
+    }>("/api/workouts/substitute", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      auth: true,
+    }),
+  sendChatMessage: (payload: { message: string; page?: string }) =>
+    apiFetch<{ response: string }>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
       auth: true,
     }),
 };
@@ -212,24 +272,30 @@ export type DietPlan = {
   meals: {
     name: string;
     time: string;
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    foods: string[];
+    options: {
+      label: string;
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+      foods: string[];
+    }[];
   }[];
 };
 
 export type WorkoutPlan = {
-  name: string;
-  durationMin: number;
-  calories: number;
-  exercises: {
+  workouts: {
+    day?: number;
     name: string;
-    sets: number;
-    reps: string;
-    muscleGroup: string;
-    rest: string;
-    instructions: string[];
+    durationMin: number;
+    calories: number;
+    exercises: {
+      name: string;
+      sets: number;
+      reps: string;
+      muscleGroup: string;
+      rest: string;
+      instructions: string[];
+    }[];
   }[];
 };

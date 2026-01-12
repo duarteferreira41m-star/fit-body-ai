@@ -4,6 +4,7 @@ import { StatCard } from "@/components/StatCard";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { ProgressRing } from "@/components/ProgressRing";
 import { BottomNav } from "@/components/BottomNav";
+import { ChatBox } from "@/components/ChatBox";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -245,12 +246,19 @@ const Dashboard = () => {
             <p className="text-sm text-muted-foreground mb-4">
               Atualize suas fotos para uma avaliação precisa da IA
             </p>
-            <Button variant="fitness" onClick={() => navigate("/analysis")}>
-              Enviar Fotos
-            </Button>
+            <div className="flex gap-3">
+              <Button variant="fitness" onClick={() => navigate("/analysis")}>
+                Enviar Fotos
+              </Button>
+              <Button variant="outline" onClick={() => navigate("/profile/setup")}>
+                Completar Dados Pessoais
+              </Button>
+            </div>
           </div>
           <div className="absolute -right-4 -bottom-4 h-32 w-32 rounded-full bg-primary/10 blur-2xl" />
         </motion.section>
+
+        <ChatBox page="home" />
       </main>
 
       <BottomNav />

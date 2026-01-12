@@ -20,11 +20,18 @@ const dietPlanSchema = z.object({
       z.object({
         name: z.string().min(1),
         time: z.string().min(1),
-        calories: z.number().min(0),
-        protein: z.number().min(0),
-        carbs: z.number().min(0),
-        fat: z.number().min(0),
-        foods: z.array(z.string().min(1)).min(1).max(12),
+        options: z
+          .array(
+            z.object({
+              label: z.string().min(1),
+              calories: z.number().min(0),
+              protein: z.number().min(0),
+              carbs: z.number().min(0),
+              fat: z.number().min(0),
+              foods: z.array(z.string().min(1)).min(1).max(12),
+            })
+          )
+          .length(3),
       })
     )
     .min(3)
@@ -32,22 +39,30 @@ const dietPlanSchema = z.object({
 });
 
 const workoutPlanSchema = z.object({
-  name: z.string().min(1),
-  durationMin: z.number().min(20).max(180),
-  calories: z.number().min(50).max(1500),
-  exercises: z
+  workouts: z
     .array(
       z.object({
+        day: z.number().min(1).max(7),
         name: z.string().min(1),
-        sets: z.number().min(1).max(8),
-        reps: z.string().min(1),
-        muscleGroup: z.string().min(1),
-        rest: z.string().min(1),
-        instructions: z.array(z.string().min(1)).min(2).max(8),
+        durationMin: z.number().min(20).max(180),
+        calories: z.number().min(50).max(1500),
+        exercises: z
+          .array(
+            z.object({
+              name: z.string().min(1),
+              sets: z.number().min(1).max(8),
+              reps: z.string().min(1),
+              muscleGroup: z.string().min(1),
+              rest: z.string().min(1),
+              instructions: z.array(z.string().min(1)).min(2).max(8),
+            })
+          )
+          .min(4)
+          .max(10),
       })
     )
-    .min(4)
-    .max(10),
+    .min(1)
+    .max(7),
 });
 
 const buildPrompt = () => [
@@ -126,6 +141,33 @@ const requestOpenAIJson = async (messages) => {
   return parsed;
 };
 
+const requestOpenAIText = async (messages) => {
+  if (!config.openaiApiKey) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.openaiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.openaiModel,
+      temperature: 0.4,
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`OpenAI error: ${detail}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content?.trim() || "";
+};
+
 const analyzePhotos = async (photos) => {
   const imageParts = photos.map((photo) => ({
     type: "image_url",
@@ -158,12 +200,14 @@ const generateDietPlan = async ({ profile, measurement }) => {
       content:
         "You are a nutrition coach. Return JSON only with keys: " +
         "totalCalories, protein{target}, carbs{target}, fat{target}, water{target}, meals[] " +
-        "(each meal: name, time, calories, protein, carbs, fat, foods[]).",
+        "(each meal: name, time, options[3] with label, calories, protein, carbs, fat, foods[]).",
     },
     {
       role: "user",
       content:
         "Create a one-day meal plan in Portuguese tailored to the user context below. " +
+        "Each meal must include 3 different options of foods, keeping macros similar. " +
+        "You may include foods beyond user preferences when needed for a complete diet. " +
         "Keep it realistic for a fitness plan and align meal times with routine when provided. " +
         "Return JSON only, no markdown.\n\n" +
         JSON.stringify(context),
@@ -180,18 +224,19 @@ const generateDietPlan = async ({ profile, measurement }) => {
 
 const generateWorkoutPlan = async ({ profile, measurement }) => {
   const context = buildPlanContext(profile, measurement);
+  const trainingDays = profile?.trainingDays || 3;
   const parsed = await requestOpenAIJson([
     {
       role: "system",
       content:
         "You are a fitness coach. Return JSON only with keys: " +
-        "name, durationMin, calories, exercises[] (each: name, sets, reps, muscleGroup, rest, instructions[]).",
+        "workouts[] (each: day, name, durationMin, calories, exercises[] with name, sets, reps, muscleGroup, rest, instructions[]).",
     },
     {
       role: "user",
       content:
-        "Create a single workout session plan in Portuguese tailored to the user context below. " +
-        "Keep it realistic and safe. Return JSON only, no markdown.\n\n" +
+        `Create a weekly workout plan in Portuguese with ${trainingDays} sessions tailored to the user context below. ` +
+        "Distribute muscle groups sensibly and keep it safe. Return JSON only, no markdown.\n\n" +
         JSON.stringify(context),
     },
   ]);
@@ -204,4 +249,140 @@ const generateWorkoutPlan = async ({ profile, measurement }) => {
   return result.data;
 };
 
-module.exports = { analyzePhotos, generateDietPlan, generateWorkoutPlan };
+const adjustMealPlan = async ({ planTargets, meal, availableFoods, photoUrl }) => {
+  const userContent = [
+    {
+      type: "text",
+      text:
+        "The user cannot find the planned foods. Suggest a new meal option in Portuguese " +
+        "using the available foods and/or the meal photo. Keep macros close to the target. " +
+        "Return JSON only, no markdown.\n\n" +
+        JSON.stringify({ planTargets, meal, availableFoods }),
+    },
+  ];
+  if (photoUrl) {
+    userContent.push({ type: "image_url", image_url: { url: photoUrl } });
+  }
+
+  const parsed = await requestOpenAIJson([
+    {
+      role: "system",
+      content:
+        "You are a nutrition coach. Return JSON only with keys: " +
+        "option{label, calories, protein, carbs, fat, foods[]}, reasoning. " +
+        "Keep macros close to the meal target.",
+    },
+    {
+      role: "user",
+      content: userContent,
+    },
+  ]);
+
+  const schema = z.object({
+    option: z.object({
+      label: z.string().min(1),
+      calories: z.number().min(0),
+      protein: z.number().min(0),
+      carbs: z.number().min(0),
+      fat: z.number().min(0),
+      foods: z.array(z.string().min(1)).min(1).max(12),
+    }),
+    reasoning: z.string().min(1),
+  });
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("OpenAI response failed validation");
+  }
+  return result.data;
+};
+
+const suggestRestTime = async ({ exercise, profile, measurement }) => {
+  const parsed = await requestOpenAIJson([
+    {
+      role: "system",
+      content:
+        "You are a strength coach. Return JSON only with keys: suggestedRest, reasoning. " +
+        "Use technical but concise language.",
+    },
+    {
+      role: "user",
+      content:
+        "Suggest rest time in Portuguese for the exercise below, considering user context. " +
+        "Return JSON only, no markdown.\n\n" +
+        JSON.stringify({ exercise, profile, measurement }),
+    },
+  ]);
+
+  const schema = z.object({
+    suggestedRest: z.string().min(1),
+    reasoning: z.string().min(1),
+  });
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("OpenAI response failed validation");
+  }
+  return result.data;
+};
+
+const suggestExerciseSubstitution = async ({ exercise, reason, profile, measurement }) => {
+  const parsed = await requestOpenAIJson([
+    {
+      role: "system",
+      content:
+        "You are a strength coach. Return JSON only with keys: substitute, reasoning. " +
+        "Substitute must include name, sets, reps, muscleGroup, rest, instructions[].",
+    },
+    {
+      role: "user",
+      content:
+        "Suggest a substitute exercise in Portuguese for the exercise below, considering " +
+        "user level, weight, and reason for substitution. Return JSON only, no markdown.\n\n" +
+        JSON.stringify({ exercise, reason, profile, measurement }),
+    },
+  ]);
+
+  const schema = z.object({
+    substitute: z.object({
+      name: z.string().min(1),
+      sets: z.number().min(1).max(8),
+      reps: z.string().min(1),
+      muscleGroup: z.string().min(1),
+      rest: z.string().min(1),
+      instructions: z.array(z.string().min(1)).min(2).max(8),
+    }),
+    reasoning: z.string().min(1),
+  });
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("OpenAI response failed validation");
+  }
+  return result.data;
+};
+
+const generateCoachResponse = async ({ message, context, page }) => {
+  const systemPrompt =
+    "You are an expert fitness and nutrition coach. Reply in Portuguese with clear, actionable guidance. " +
+    "Ask at most one follow-up question when helpful. Avoid medical claims.";
+  const userPrompt =
+    "User message:\n" +
+    message +
+    "\n\nPage context:\n" +
+    page +
+    "\n\nUser context JSON:\n" +
+    JSON.stringify(context);
+
+  return requestOpenAIText([
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ]);
+};
+
+module.exports = {
+  analyzePhotos,
+  generateDietPlan,
+  generateWorkoutPlan,
+  adjustMealPlan,
+  suggestRestTime,
+  suggestExerciseSubstitution,
+  generateCoachResponse,
+};

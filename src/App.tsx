@@ -27,6 +27,14 @@ const App = () => (
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route
+            path="/profile/setup"
+            element={
+              <RequireAuth>
+                <CompleteProfile />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/"
             element={
               <RequireAuth>

@@ -13,6 +13,7 @@ const { photosRouter } = require("./routes/photos");
 const { exercisesRouter } = require("./routes/exercises");
 const { analysisRouter } = require("./routes/analysis");
 const { plansRouter } = require("./routes/plans");
+const { chatRouter } = require("./routes/chat");
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use("/api/photos", photosRouter);
 app.use("/api/exercises", exercisesRouter);
 app.use("/api/analysis", analysisRouter);
 app.use("/api/plans", plansRouter);
+app.use("/api/chat", chatRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

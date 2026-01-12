@@ -1,7 +1,11 @@
 const express = require("express");
+const path = require("path");
+const multer = require("multer");
 const { z } = require("zod");
 const { prisma } = require("../prisma");
 const { authenticate } = require("../middleware/auth");
+const { config } = require("../config");
+const { adjustMealPlan } = require("../utils/openai");
 
 const router = express.Router();
 
@@ -14,6 +18,32 @@ const dietSchema = z.object({
   waterLiters: z.number().min(0).max(10).optional(),
   notes: z.string().optional(),
 });
+
+const mealAdjustmentSchema = z.object({
+  mealName: z.string().min(1),
+  mealTime: z.string().min(1),
+  availableFoods: z.string().min(1),
+  planTargets: z.string().min(1),
+  optionMacros: z.string().min(1),
+});
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, config.uploadsPath);
+  },
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+
+const upload = multer({ storage });
+
+const buildPublicUrl = (req, filePath) => {
+  const normalized = filePath.replace(/\\/g, "/");
+  const relative = normalized.split("uploads/").pop();
+  return `${req.protocol}://${req.get("host")}/uploads/${relative}`;
+};
 
 router.get("/", authenticate, async (req, res) => {
   const dietLogs = await prisma.dietLog.findMany({
@@ -51,6 +81,37 @@ router.delete("/:id", authenticate, async (req, res) => {
     where: { id: req.params.id, userId: req.user.userId },
   });
   return res.status(204).send();
+});
+
+router.post("/adjust-meal", authenticate, upload.single("photo"), async (req, res) => {
+  const parsed = mealAdjustmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+
+  const { mealName, mealTime, availableFoods, planTargets, optionMacros } = parsed.data;
+  let photoUrl = null;
+  if (req.file) {
+    photoUrl = buildPublicUrl(req, path.relative(process.cwd(), req.file.path));
+  }
+
+  let parsedTargets;
+  let parsedMacros;
+  try {
+    parsedTargets = JSON.parse(planTargets);
+    parsedMacros = JSON.parse(optionMacros);
+  } catch (error) {
+    return res.status(400).json({ error: "Invalid JSON payload" });
+  }
+
+  const adjustment = await adjustMealPlan({
+    planTargets: parsedTargets,
+    meal: { name: mealName, time: mealTime, optionMacros: parsedMacros },
+    availableFoods,
+    photoUrl,
+  });
+
+  return res.json(adjustment);
 });
 
 module.exports = { dietRouter: router };

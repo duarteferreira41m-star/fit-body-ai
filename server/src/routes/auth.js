@@ -26,7 +26,7 @@ router.post("/register", async (req, res) => {
     return res.status(400).json({ error: "Invalid payload" });
   }
 
-  const { email, password } = parsed.data;
+  const { email, password, name, phone } = parsed.data;
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     return res.status(409).json({ error: "Email already in use" });
@@ -34,7 +34,12 @@ router.post("/register", async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
-    data: { email, passwordHash },
+    data: {
+      email,
+      passwordHash,
+      phone,
+      profile: name ? { create: { name } } : undefined,
+    },
   });
 
   return res.json({ token: createToken(user) });

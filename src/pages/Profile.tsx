@@ -49,6 +49,7 @@ const Profile = () => {
     trainingTime: "",
     trainingDays: "",
     trainingDurationMin: "",
+    activityLevel: "",
     usesSteroids: false,
     steroids: "",
     preferredFoods: "",
@@ -68,6 +69,7 @@ const Profile = () => {
       trainingTime: profile.trainingTime || "",
       trainingDays: profile.trainingDays ? String(profile.trainingDays) : "",
       trainingDurationMin: profile.trainingDurationMin ? String(profile.trainingDurationMin) : "",
+      activityLevel: profile.activityLevel || "",
       usesSteroids: Boolean(profile.usesSteroids),
       steroids: profile.steroids || "",
       preferredFoods: profile.preferredFoods || "",
@@ -89,6 +91,7 @@ const Profile = () => {
       trainingDurationMin: formState.trainingDurationMin
         ? Number(formState.trainingDurationMin)
         : undefined,
+      activityLevel: formState.activityLevel || undefined,
       usesSteroids: formState.usesSteroids,
       steroids: formState.steroids || undefined,
       preferredFoods: formState.preferredFoods || undefined,
@@ -292,6 +295,22 @@ const Profile = () => {
                 />
               ) : (
                 <p className="font-medium text-foreground">{formState.trainingDurationMin} min</p>
+              )}
+            </div>            <div>
+              <Label className="text-muted-foreground text-xs">Nǭvel de Treino</Label>
+              {isEditing ? (
+                <Input
+                  value={formState.activityLevel}
+                  onChange={(e) =>
+                    setFormState((prev) => ({ ...prev, activityLevel: e.target.value }))
+                  }
+                  className="mt-1"
+                  placeholder="Ex: iniciante, intermediario, avancado"
+                />
+              ) : (
+                <p className="font-medium text-foreground">
+                  {formState.activityLevel || "Nǜo informado"}
+                </p>
               )}
             </div>
           </CardContent>
